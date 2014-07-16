@@ -1,0 +1,39 @@
+#!/bin/bash
+
+usage() {
+    printf "usage: \n  $0 <yesterday|current>\n"
+    exit 1
+}
+
+if [ "$1" != "yesterday" ]; then
+    if [ "$1" != "current" ]; then
+	usage
+    fi
+fi
+
+GP=/usr/local/libexec/sar-gnuplot-script
+DIR=/var/spool/sargraphs
+TDIR=${DIR}/tmp
+
+YDAY=$(date +%Y%m%d -d yesterday)
+DAY=$(date +%d)
+EVE=$(date +%d -d yesterday)
+
+case $1 in 
+    yesterday)
+      COUNTER=0
+      while [[ ! -f /var/log/sa/sa${EVE} && $COUNTER -lt 360 ]]; do 
+	  sleep 5
+	  let COUNTER+=1
+      done
+      ${GP} /var/log/sa/sa${EVE} ${TDIR} ${DIR}/${YDAY}.png
+      chmod a+r ${DIR}/${YDAY}.png
+      ;;
+    current)
+      ${GP} /var/log/sa/sa${DAY} ${TDIR} ${DIR}/current.png
+      chmod a+r ${DIR}/current.png
+      ;;
+    *)
+      usage
+      ;;
+esac

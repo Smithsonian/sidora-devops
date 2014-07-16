@@ -1,0 +1,103 @@
+#!/bin/bash
+# 20140602 James Boyle (jwb)
+# do nice stuff with sar for gnuplot
+
+usage() {
+    printf "$0 <sa file> <tmpdir> <png filename>\n"
+    exit 1
+}
+
+[ -z "$1" ] && usage
+[ -z "$2" ] && usage
+[ -z "$3" ] && usage
+
+SAR=/usr/bin/sar
+export LC_TIME=POSIX
+
+$SAR -n DEV -f $1 |egrep -v IFACE\|Average |grep eth0 > $2/dev-eth0
+$SAR -n DEV -f $1 |egrep -v IFACE\|Average |grep eth5 > $2/dev-eth5
+$SAR -n NFS -f $1 |sed '/[a-zA-Z]/d' |sed '/^$/d' > $2/nfs
+$SAR -q -f $1 |sed '/[a-zA-Z]/d' |sed '/^$/d' > $2/queue
+$SAR -r -f $1 |sed '/[a-zA-Z]/d' |sed '/^$/d' > $2/mem
+$SAR -w -f $1 |sed '/[a-zA-Z]/d' |sed '/^$/d' > $2/tasks
+$SAR -u -f $1 |sed 's|all||' |sed '/[a-zA-Z]/d' | sed '/^$/d' > $2/cpu
+$SAR -d -f $1 |sed '/[A-Z]/d' |grep dev9-1 > $2/md1
+$SAR -d -f $1 |sed '/[A-Z]/d' |grep dev8-0 > $2/sda
+$SAR -d -f $1 |sed '/[A-Z]/d' |grep dev8-16 > $2/sdb
+$SAR -d -f $1 |sed '/[A-Z]/d' |grep dev253-3 > $2/sata_vg
+
+gnuplot <<XYZZY
+set xdata time
+set timefmt "%H:%M:%S"
+set key left
+set format x "%H:%M"
+set grid
+set terminal png size 1440, 3086
+set output "$3"
+set style data lines
+set size 1,1
+set origin 0,0
+set multiplot 
+set tmargin 2
+
+set title "Memory"
+set size 1,0.1429
+set origin 0,0.857
+plot "$2/mem" using 1:4 title "% total used", '' using 1:( (\$3-\$6) / 741704.76 ) title "% direct alloc", \
+  '' using 1:( \$6 / 741704.76 ) title "% cache", '' using 1:(\$8 / \$7 * 100 ) title "% swap"
+
+set title "# Processes / CX Switches"
+set size 1,0.1429
+set origin 0,0.714
+plot "$2/queue" using 1:3 title "#procs", "$2/tasks" using 1:2 title "cx switch/s"
+
+set title "%CPU"
+set size 1,0.1429
+set origin 0,0.571
+plot "$2/cpu" using 1:(\$2+\$3+\$4) title "user+nice+sys", '' using 1:5 title "I/O wait"
+
+set title "eth0"
+set size 1,0.1429
+set origin 0,0.429
+set logscale y
+plot "$2/dev-eth0" using 1:5 title "RX Bytes/s", '' using 1:6 title "TX Bytes/s"
+
+set title "eth5"
+set size 1,0.1429
+set origin 0,0.286
+set logscale y
+plot "$2/dev-eth5" using 1:5 title "RX Bytes/s", '' using 1:6 title "TX Bytes/s"
+
+set title "NFS"
+set size 1,0.1429
+set origin 0,0.143
+unset logscale y
+plot "$2/nfs" using 1:4 title "Read/s", '' using 1:5 title "Write/s", '' using 1:6 title "Access/s", '' using 1:7 title "Getatt/s"
+
+set title "Local Disks (md1 built on sda+sdb)"
+set size 1,0.1429
+set origin 0,0
+set logscale y
+plot [*:*] [0.1:*] "$2/md1" using 1:(\$4/2) title "md1 KiB/s (read)", '' using 1:(\$5/2) title "md1 KiB/s (write)", \
+"$2/sata_vg" using 1:(\$4/2) title "sata_vg KiB/s (read)", '' using 1:(\$5/2) title "sata_vg KiB/s (write)"
+# "$2/sda" using 1:(\$4/2) title "sda KiB/s (read)", '' using 1:(\$5/2) title "sda KiB/s (write)", \
+# "$2/sdb" using 1:(\$4/2) title "sdb KiB/s (read)", '' using 1:(\$5/2) title "sdb KiB/s (write)"
+
+unset multiplot
+XYZZY
+
+#for X in sa?? ; do
+
+# for X in 22 23 24 25 26 27 28 29 30 31 ; do 
+#     LC_TIME=POSIX ~/bin/sar -n NFS -f ./sa${X} > ./201405${X}/nfs
+#     LC_TIME=POSIX ~/bin/sar -n DEV -f ./sa${X} > ./201405${X}/dev
+#     LC_TIME=POSIX ~/bin/sar -q -f ./sa${X} > ./201405${X}/queue
+#     LC_TIME=POSIX ~/bin/sar -r -f ./sa${X} > ./201405${X}/mem
+#     LC_TIME=POSIX ~/bin/sar -w -f ./sa${X} > ./201405${X}/tasks
+# done
+
+# for X in ???????? ; do 
+#     egrep -v IFACE\|Average ${X}/dev | grep eth0 > ${X}/dev-eth0
+#     egrep -v IFACE\|Average ${X}/dev | grep eth5 > ${X}/dev-eth5
+# done
+

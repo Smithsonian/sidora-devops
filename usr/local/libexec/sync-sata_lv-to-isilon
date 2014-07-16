@@ -1,0 +1,15 @@
+#!/bin/bash
+
+LOGFILE=/var/log/sync-sata_lv-to-isilon
+LOCKFILE=/var/lock/subsys/sync-sata_lv-to-isilon
+
+bail() {
+    printf "$1: exiting\n"
+    exit 1
+}
+
+[ -f ${LOCKFILE} ] && bail "already running or broken lock" >> ${LOGFILE} 2>&1
+
+touch ${LOCKFILE}
+/usr/bin/rsync -vacW /satatmp/data/objectStore /usr/local/fedora/isilon/ >> ${LOGFILE} 2>&1 
+[ -f ${LOCKFILE} ] && rm -f "${LOCKFILE}"

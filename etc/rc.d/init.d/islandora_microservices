@@ -1,0 +1,97 @@
+#!/bin/sh
+#
+#
+#
+#   Startup/shutdown script for running islandora microservices.
+#
+#   Linux chkconfig stuff:
+#
+#   chkconfig: 2345 70 10
+#   description: Startup/shutdown script for running Islandora Microservices.
+#
+# Source function library.
+
+PROG="Islandora Microservices"
+PYTHON=python26
+MICROSERVICES_PATH=/opt/islandora_microservices/
+CONFIG_FILE=islandora_listener.cfg
+PLUGIN_DIR=plugins
+PID_SEARCH=`ps -ef | grep 'python' | grep 'islandora_listener' | grep $CONFIG_FILE | grep -v 'grep' | awk '{print $2}'`
+
+# *** Please make sure you change the fedora user to reflect the local setup. ***
+FEDORA_USER=fedora
+
+# 20140605 jwb - is there a reason to require a _minimum_ 2GiB stack/heap size? I.e. why allocate 2GiB at instantiation?
+#export JAVA_OPTS="-Xms2048m -Xmx8192m -XX:MaxPermSize=512m -Djavax.net.ssl.trustStore=/usr/local/fedora/server/truststore -Djavax.net.ssl.trustStorePassword=tomcat"
+export JAVA_OPTS="-Xmx8192m -XX:MaxPermSize=512m -Djavax.net.ssl.trustStore=/usr/local/fedora/server/truststore -Djavax.net.ssl.trustStorePassword=tomcat"
+
+start () {
+	echo -n "Starting $PROG: "
+	# check to see if the process is already running
+	if [ $PID_SEARCH ]; then
+		echo "$PROG is already running"
+	else
+	    # start JMS as the fedora user
+	    cd $MICROSERVICES_PATH
+	    sudo -E -u $FEDORA_USER bash -c "env HOME=/home/$FEDORA_USER $PYTHON ${MICROSERVICES_PATH}islandora_listener.py -C $CONFIG_FILE -P $PLUGIN_DIR &> /dev/null &"
+	    sleep 3
+	    ps -ef | grep 'python' | grep 'islandora_listener' | grep $CONFIG_FILE | grep -v 'grep' >/dev/null 2>&1
+	    RETVAL=$?
+	    if [ $RETVAL = 0 ]; then
+		touch /var/lock/islandora_microservices
+		echo "                                          [ OK ]"
+	    else
+		echo "                                          [ FAILED ]"
+	    fi
+	fi
+}
+
+stop () {
+	# stop daemon
+	echo -n "Stopping $PROG: "
+	# check to see if the process is running
+	if [ ! -f /var/lock/islandora_microservices ]; then
+		echo "$PROG is not running"
+	else
+		# use kill -2 to stop JMS.
+		kill `ps -ef | grep python | grep islandora_listener | grep $CONFIG_FILE | grep -v grep | awk '{print $2}'` &>/dev/null
+		RETVAL=$?
+		echo "                                          [ OK ]"
+		[ $RETVAL = 0 ] && rm -f /var/lock/islandora_microservices
+	fi
+}
+
+restart() {
+	stop
+  sleep 2
+	start
+}
+
+case $1 in
+	start)
+		start
+	;;
+	stop)
+		stop
+	;;
+	restart)
+		restart
+	;;
+	status)
+		if [ -f /var/lock/islandora_microservices ]; then
+			if [ ! $PID_SEARCH ] ; then
+				echo "Stale lock file exists. No pid found for Islandora Microservices. $PROG is not running."
+			else
+				echo "$PROG (pid `ps -ef | grep 'python' | grep 'islandora_listener' | grep $CONFIG_FILE | grep -v 'grep' | awk '{print $2}'`) is running..."
+			fi
+		else
+			echo "$PROG has not been started."
+		fi
+	;;
+	*)
+
+	echo "Usage: $PROG {start|stop|restart|status}"
+	exit 3
+esac
+
+exit $RETVAL

@@ -6,17 +6,19 @@
 #
 #   Linux chkconfig stuff:
 #
-#   chkconfig: 2345 70 10
+#   chkconfig: 345 90 10
 #   description: Startup/shutdown script for running Islandora Microservices.
 #
 # Source function library.
+. /etc/rc.d/init.d/functions
 
 PROG="Islandora Microservices"
 PYTHON=python26
 MICROSERVICES_PATH=/opt/islandora_microservices/
 CONFIG_FILE=islandora_listener.cfg
 PLUGIN_DIR=plugins
-PID_SEARCH=`ps -ef | grep 'python' | grep 'islandora_listener' | grep $CONFIG_FILE | grep -v 'grep' | awk '{print $2}'`
+PID_SEARCH=$(ps auxww |grep 'python.*islandora_listener.*islandora_listener.cfg' |grep -v grep |awk '{print $2}')
+TMOUT=30
 
 # *** Please make sure you change the fedora user to reflect the local setup. ***
 FEDORA_USER=fedora
@@ -29,69 +31,90 @@ start () {
 	echo -n "Starting $PROG: "
 	# check to see if the process is already running
 	if [ $PID_SEARCH ]; then
-		echo "$PROG is already running"
+	    echo "$PROG is already running"
 	else
-	    # start JMS as the fedora user
 	    cd $MICROSERVICES_PATH
-	    sudo -E -u $FEDORA_USER bash -c "env HOME=/home/$FEDORA_USER $PYTHON ${MICROSERVICES_PATH}islandora_listener.py -C $CONFIG_FILE -P $PLUGIN_DIR &> /dev/null &"
-	    sleep 3
-	    ps -ef | grep 'python' | grep 'islandora_listener' | grep $CONFIG_FILE | grep -v 'grep' >/dev/null 2>&1
-	    RETVAL=$?
-	    if [ $RETVAL = 0 ]; then
+	    let CTR=0
+	    while [ $CTR -lt $TMOUT ]; do
+		image_check=$(curl -s --connect-timeout 1 --max-time 2 -o /dev/null -w "%{http_code}" "http://localhost:8080/tomcat.gif")
+		case $image_check in 
+		    20*)
+			let CTR=999
+			;;
+		    *)
+			[ $CTR -eq 0 ] && printf " waiting for fedora: "
+			sleep 1  #give it a little bit longer for fedora to start
+			let CTR+=1
+			;;
+		esac
+	    done
+	    su $FEDORA_USER bash -c "env HOME=/home/$FEDORA_USER $PYTHON ${MICROSERVICES_PATH}islandora_listener.py -C $CONFIG_FILE -P $PLUGIN_DIR &> /dev/null &"
+	    sleep 5  #waiting here just in case fedora wasn't running and uSVCS quits
+
+	    PID_SEARCH=$(ps auxww |grep 'python.*islandora_listener.*islandora_listener.cfg' |grep -v grep| awk '{print $2}')
+	    if [ $PID_SEARCH ]; then
 		touch /var/lock/islandora_microservices
-		echo "                                          [ OK ]"
+		echo_success ; printf "\n"
+		RETVAL=0
 	    else
-		echo "                                          [ FAILED ]"
+		echo_failure ; printf "\n"
+		RETVAL=1
 	    fi
 	fi
 }
 
 stop () {
-	# stop daemon
 	echo -n "Stopping $PROG: "
-	# check to see if the process is running
+
 	if [ ! -f /var/lock/islandora_microservices ]; then
 		echo "$PROG is not running"
 	else
-		# use kill -2 to stop JMS.
-		kill `ps -ef | grep python | grep islandora_listener | grep $CONFIG_FILE | grep -v grep | awk '{print $2}'` &>/dev/null
-		RETVAL=$?
-		echo "                                          [ OK ]"
-		[ $RETVAL = 0 ] && rm -f /var/lock/islandora_microservices
+	    pkill -f 'python.*islandora_listener'
+	    let CTR=0
+	    while [ $CTR -lt $TMOUT ]; do
+		PID_SEARCH=$(ps auxww |grep 'python.*islandora_listener.*islandora_listener.cfg' |grep -v grep| awk '{print $2}')
+                [ -z "$PID_SEARCH" ] && break
+		let CTR+=1
+		sleep 1
+	    done
+
+	    if [ $PID_SEARCH ]; then
+		echo_failure ; printf "\n"
+		RETVAL=1
+	    else
+		rm -f /var/lock/islandora_microservices
+		echo_success ; printf "\n"
+		RETVAL=0
+	    fi
 	fi
 }
 
-restart() {
-	stop
-  sleep 2
-	start
-}
-
 case $1 in
-	start)
-		start
+    start)
+	start
 	;;
-	stop)
-		stop
+    stop)
+	stop
 	;;
-	restart)
-		restart
+    restart)
+	stop
+	start
 	;;
-	status)
-		if [ -f /var/lock/islandora_microservices ]; then
-			if [ ! $PID_SEARCH ] ; then
-				echo "Stale lock file exists. No pid found for Islandora Microservices. $PROG is not running."
-			else
-				echo "$PROG (pid `ps -ef | grep 'python' | grep 'islandora_listener' | grep $CONFIG_FILE | grep -v 'grep' | awk '{print $2}'`) is running..."
-			fi
-		else
-			echo "$PROG has not been started."
-		fi
+    status)
+	if [ -f /var/lock/islandora_microservices ]; then
+	    if [ -z "$PID_SEARCH" ] ; then
+		echo "Stale lock file exists. No pid found for Islandora Microservices. $PROG is not running."
+	    else
+		echo "$PROG (pid $PID_SEARCH) is running..."
+	    fi
+	else
+	    echo "$PROG has not been started."
+	   fi
 	;;
-	*)
-
+    *)
 	echo "Usage: $PROG {start|stop|restart|status}"
 	exit 3
+	;;
 esac
 
 exit $RETVAL

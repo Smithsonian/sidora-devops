@@ -13,7 +13,7 @@
 . /etc/rc.d/init.d/functions
 
 PROG="Islandora Microservices"
-PYTHON=python26
+PYTHON=python2.6
 MICROSERVICES_PATH=/opt/islandora_microservices/
 CONFIG_FILE=islandora_listener.cfg
 PLUGIN_DIR=plugins
